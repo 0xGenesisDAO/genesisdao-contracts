@@ -71,6 +71,7 @@ interface IPresale {
      */
     error InvalidLiquidityValue();
 
+
     /**
      * @dev Emitted when the pool validation parameters provided to the contract are invalid.
      */
@@ -137,10 +138,11 @@ interface IPresale {
     function deposit() external returns (uint256);
 
     /**
-     * @dev Call this function to finalize a succesful presale. 
-     * This will allocate the share of seeder tokens for redist, and calculate the amount of ETH needed for LP. 
-     * The remaining ETH is transfered to the sender. 
-     *
+     * @dev Finalizes the presale, allowing for the distribution of tokens to
+     * participants and the withdrawal of funds raised to the beneficiary. This
+     * function is typically called after the presale ends, assuming it meets
+     * any predefined criteria such as minimum funding goals.
+     * 
      * @return A boolean value indicating whether the presale was successfully
      * finalized.
      */
@@ -165,21 +167,10 @@ interface IPresale {
      */
     function claim() external returns (uint256);
 
-    /** 
-     * @notice Call this function to launch a succesful presale. Calling this function will provide liquidity
-     * to Uniswap, withdraw the raised funds and enable token claiming. Tokens can NOT be claimed prior calling this function.
-    */
-    function launch() external;
-
     /**
     * @dev Allows contributors to get a refund when the presale fails or is canceled.
     */
     function unlockClaim() external;
-
-    /**
-     * @dev Allows the owner to extend the active period of the presale, but only while the presale is ongoing.
-    */
-    function extendEndTime(uint112 end) external;
 
     /**
      * @dev Enables participants to request a refund of their contribution if the
