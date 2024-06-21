@@ -55,7 +55,7 @@ contract Presale is IPresale, Ownable {
      * @param tokensLiquidity
      * @param weiRaised
      * @param weth
-     * @param state Current state of the presale {1: Initialized, 2: Active, 3: Canceled, 4: Finalized, 5: Launched, 6: Claimable}.
+     * @param state Current state of the presale {1: Initialized, 2: Active, 3: Canceled, 4: Finalized, 5: Claimable}.
      * @param options PresaleOptions struct containing configuration for the presale.
     */
     struct Pool {
@@ -77,7 +77,8 @@ contract Presale is IPresale, Ownable {
 
     /// @notice Canceled or NOT softcapped and expired
     modifier onlyRefundable() {
-        if(!(pool.state != 3 || (block.timestamp > pool.options.end && pool.weiRaised < pool.options.softCap))) revert NotRefundable(); 
+        require(pool.state == 3 || (block.timestamp > pool.options.end && pool.weiRaised < pool.options.softCap), 
+        "Presale has to be cancelled, or softcap not met during active period.");
         _;
     }
     
@@ -130,7 +131,8 @@ contract Presale is IPresale, Ownable {
     */
     function finalize() external onlyOwner returns(bool) {
         if(pool.state != 2) revert InvalidState(pool.state);
-        if(pool.weiRaised < pool.options.softCap && block.timestamp < pool.options.end) revert SoftCapNotReached();
+        if(pool.weiRaised < pool.options.softCap) revert SoftCapNotReached();
+        require(block.timestamp > pool.options.end, "Presale still in active period");
  
         pool.state = 4;
 
@@ -151,24 +153,13 @@ contract Presale is IPresale, Ownable {
         uint256 withdrawable = pool.weiRaised - liquidityWei;
         if (withdrawable > 0) payable(msg.sender).sendValue(withdrawable);
 
-        emit Finalized(msg.sender, pool.weiRaised, block.timestamp);
-        
-        return true;
-    }
-
-    /** 
-     * @notice Call this function to launch a succesful presale. Calling this function will provide liquidity
-     * to Uniswap, withdraw the raised funds and enable token claiming. Tokens can NOT be claimed prior calling this function.
-    */
-    function launch() external onlyOwner {
-        if(pool.state != 4) revert InvalidState(pool.state);
-        pool.state = 5;
-
-        uint256 liquidityWei = _liquidityWei();
-
         // Add LP
         _liquify(liquidityWei, pool.tokensLiquidity);
         pool.tokenBalance -= pool.tokensLiquidity;
+
+        emit Finalized(msg.sender, pool.weiRaised, block.timestamp);
+        
+        return true;
     }
 
     /** 
@@ -177,7 +168,7 @@ contract Presale is IPresale, Ownable {
      * @return True if the cancellation was successful.
     */
     function cancel() external onlyOwner returns(bool){
-        if(pool.state > 3) revert InvalidState(pool.state);
+        if(pool.state > 2) revert InvalidState(pool.state);
 
         pool.state = 3;
 
@@ -206,7 +197,7 @@ contract Presale is IPresale, Ownable {
      * @return The amount of tokens claimed.
     */
     function claim() external returns (uint256) {
-        if(pool.state != 6) revert InvalidState(pool.state);
+        if(pool.state != 5) revert InvalidState(pool.state);
         if (contributions[msg.sender] == 0) revert NotClaimable();
 
         uint256 amount = userTokens(msg.sender);
@@ -222,8 +213,8 @@ contract Presale is IPresale, Ownable {
     * @notice must be called manually by owner post finalize. Will allow investors to claim their tokens from the presale.
     */
     function unlockClaim() external onlyOwner {
-        if(pool.state != 5) revert InvalidState(pool.state);
-        pool.state = 6;
+        if(pool.state != 4) revert InvalidState(pool.state);
+        pool.state = 5;
     }
 
     /** 
@@ -286,7 +277,7 @@ contract Presale is IPresale, Ownable {
     */
     function _prevalidatePurchase(address _beneficiary, uint256 _amount) internal view returns(bool) {
         if(pool.state != 2) revert InvalidState(pool.state);
-        if(block.timestamp < pool.options.start || block.timestamp > pool.options.end) revert NotInPurchasePeriod(); // Comment this line out for testing purpose
+        if(block.timestamp < pool.options.start || block.timestamp > pool.options.end) revert NotInPurchasePeriod();
         if(pool.options.hardCap > 0 && pool.weiRaised + _amount > pool.options.hardCap) revert HardCapExceed();
         if(_amount < pool.options.min) revert PurchaseBelowMinimum();
         if(_amount + contributions[_beneficiary] > pool.options.max) revert PurchaseLimitExceed();
@@ -297,11 +288,11 @@ contract Presale is IPresale, Ownable {
      * @param _options The presale options.
      * @return True if the pool configuration is valid.
     */
-    function _prevalidatePool(PresaleOptions memory _options) internal view returns(bool) {
+    function _prevalidatePool(PresaleOptions memory _options) internal pure returns(bool) {
         if (_options.softCap == 0) revert InvalidCapValue();
         if (_options.min == 0 || _options.min > _options.max) revert InvalidLimitValue();
         if (_options.liquidityBps < 0 || _options.liquidityBps > 10000) revert InvalidLiquidityValue();
-        if (_options.start > block.timestamp || _options.end < _options.start) revert InvalidTimestampValue(); // Comment this line out for testing purpose
+        if (_options.end < _options.start) revert InvalidTimestampValue();
         return true;
     }
 

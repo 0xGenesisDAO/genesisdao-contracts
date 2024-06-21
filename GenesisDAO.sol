@@ -3,15 +3,18 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./lib/IUniswapV2Router02.sol";
-import "./lib/IUniswapV2Factory.sol";
-import "./lib/IUniswapV2Pair.sol";
+import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
+import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 
 contract GenesisDAO is ERC20, Ownable
 {
     address public treasury;
     address public stakingContract;
+    address public presaleContract;
+    bool public enableTrading = false;
     bool private _stakingContractSet = false;
+    bool private _presaleContractSet = false;
     mapping(address => bool) private _isExcludedFromTaxes;
     mapping(address => bool) private _liquidityPools;
     address private _pairAddress;
@@ -79,6 +82,11 @@ contract GenesisDAO is ERC20, Ownable
         {
             super._update(from, to, 0);
             return;
+        }
+
+        if (enableTrading == false && from != presaleContract && to != presaleContract)
+        {
+            revert("Token has not been launched yet!");
         }
 
         bool takeTax = true;
@@ -161,7 +169,20 @@ contract GenesisDAO is ERC20, Ownable
     function setStakingContract(address stakingContract_) external onlyOwner {
         require(_stakingContractSet == false, "Staking contract can only be set once, and is immutable afterwards");
         stakingContract = stakingContract_;
+        excludeFromTaxes(stakingContract, true);
         _stakingContractSet = true;
+    }
+
+    function setPresaleContract(address presaleContract_) external onlyOwner {
+        require(_presaleContractSet == false, "Presale contract can only be set once, and is immutable afterwards");
+        presaleContract = presaleContract_;
+        excludeFromTaxes(presaleContract, true);
+        _presaleContractSet = true;
+    }
+
+    function setEnableTrading() external onlyOwner {
+        require(_presaleContractSet == true, "Presale contract must be set up before enabling trades, otherwise there cannot be any liquidity yet");
+        enableTrading = true;
     }
 
     function burn(uint256 amount) external 

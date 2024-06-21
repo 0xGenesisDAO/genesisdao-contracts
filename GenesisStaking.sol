@@ -9,13 +9,13 @@ interface IERC20MintableBurnable is IERC20 {
     function burn(uint256 amount) external;
 }
 
-contract GenesisStaking is IERC20, Ownable {
+contract GenesisAutoCompoundStaking is IERC20, Ownable {
     uint256 private constant MAX_UINT256 = type(uint256).max;
     uint256 private constant SCALE = 1e18;
     uint256 private constant ONE_YEAR = 365 days;
 
-    uint256 private constant MAX_STAKE_TAX = 500; // Maximum stake tax is  5%
-    uint256 private constant MAX_UNSTAKE_TAX = 1500; // Maximum unstake tax is 15%
+    uint256 private constant MAX_STAKE_TAX = 500; // 5%
+    uint256 private constant MAX_UNSTAKE_TAX = 1500; // 15%
     uint256 private constant PERCENTAGE_BASE = 10000; // 100%
 
     string public name = "Genesis Staking";
@@ -31,8 +31,8 @@ contract GenesisStaking is IERC20, Ownable {
     uint256 public dynamicAPRMaxCap = 70 ether;
     uint256 public dynamicAPRConstant = 1 ether;
     uint256 public rebaseInterval = 8 hours;
-    uint256 public stakeTax = 250;
-    uint256 public unstakeTax = 750;
+    uint256 public stakeTax = 500;
+    uint256 public unstakeTax = 500;
 
     uint256 public stakeStartTime;
     uint256 public lastRebaseTime;
@@ -45,20 +45,23 @@ contract GenesisStaking is IERC20, Ownable {
     uint256 public maxSupply;
     uint256 public maxGons;
 
+    uint256 public warmupPeriod;
+
     mapping(address => uint256) private _gonBalances;
     mapping(address => mapping(address => uint256)) private _allowances;
+    mapping(address => uint256) public stakeTimes;
 
     event Mint(address indexed wallet, uint256 amount, uint256 gonsAdded, uint256 gonsPerFragment, uint256 newTotalSupply);
     event Burn(address indexed wallet, uint256 amount, uint256 gonsRemoved, uint256 gonsPerFragment, uint256 newTotalSupply);
     event Stake(address indexed user, uint256 amount, uint256 taxAmount, uint256 mintedTokens);
     event Unstake(address indexed user, uint256 amount, uint256 taxAmount, uint256 returnedTokens);
     event Rebase(
-        uint256 fixedAPR,
-        uint256 dynamicAPR,
-        uint256 rebaseAPR,
-        uint256 lastRebaseTime,
-        uint256 rebaseCount,
-        uint256 maxSupply,
+        uint256 fixedAPR, 
+        uint256 dynamicAPR, 
+        uint256 rebaseAPR, 
+        uint256 lastRebaseTime, 
+        uint256 rebaseCount, 
+        uint256 maxSupply, 
         uint256 supplyDelta,
         uint256 gonsPerFragment,
         uint256 currentSupply
@@ -74,8 +77,8 @@ contract GenesisStaking is IERC20, Ownable {
     event TreasurySet(address indexed treasury);
 
     constructor(
-        address _baseToken,
-        address _liquidityPool,
+        address _baseToken, 
+        address _liquidityPool, 
         address _treasury,
         uint256 _stakeStartTime
     ) Ownable(msg.sender) {
@@ -89,6 +92,8 @@ contract GenesisStaking is IERC20, Ownable {
         maxGons = MAX_UINT256 - (MAX_UINT256 % maxSupply);
         gonsPerFragment = maxGons / maxSupply;
         _mint(address(this), 1 ether);
+
+        warmupPeriod = 60;
 
         emit BaseTokenSet(_baseToken);
         emit LiquidityPoolSet(_liquidityPool);
@@ -149,6 +154,12 @@ contract GenesisStaking is IERC20, Ownable {
         emit StakeStartTimeSet(_stakeStartTime);
     }
 
+    function setWarmupPeriod(uint256 _warmupPeriod) external onlyOwner {
+        require(_warmupPeriod > 0, "Warmup period too low");
+        require(_warmupPeriod <= 1 days, "Warmup period too high");
+        warmupPeriod = _warmupPeriod;
+    }
+
     function _mint(address account, uint256 amount) internal {
         require(account != address(0), "ERC20: mint to the zero address");
 
@@ -202,19 +213,19 @@ contract GenesisStaking is IERC20, Ownable {
         maxSupply += supplyDelta;
         gonsPerFragment = maxGons / maxSupply;
 
-        totalSupplyTokens = totalGons / gonsPerFragment;
+        totalSupplyTokens = totalGons / gonsPerFragment; 
         lastRebaseTime = timeToUse + rebaseInterval * rebaseCount;
 
         emit Rebase(
-            fixedApr,
-            dynamicApr,
-            intervalAPR,
-            timeToUse,
-            rebaseCount,
+            fixedApr, 
+            dynamicApr, 
+            intervalAPR, 
+            timeToUse, 
+            rebaseCount, 
             maxSupply,
             supplyDelta,
             gonsPerFragment,
-            totalSupplyTokens
+            totalSupplyTokens 
         );
     }
 
@@ -233,10 +244,16 @@ contract GenesisStaking is IERC20, Ownable {
 
         _mint(msg.sender, netAmount);
 
+        if (warmupPeriod > 0) {
+            stakeTimes[msg.sender] = block.timestamp;
+        }
+        
         emit Stake(msg.sender, amount, taxAmount, netAmount);
     }
 
     function unstake(uint256 amount) external {
+        require(block.timestamp - stakeTimes[msg.sender] >= warmupPeriod, "Warmup period not over");
+
         rebase();
 
         uint256 gonsToRemove = amount * gonsPerFragment;
@@ -320,7 +337,7 @@ contract GenesisStaking is IERC20, Ownable {
         return getFixedAPR() + getDynamicAPR();
     }
 
-    function log10(uint256 x) internal pure returns (uint256) {
+    function log10(uint256 x) internal view returns (uint256) {
         if (x <= 0) {
             revert("Log zero");
         }
@@ -427,7 +444,7 @@ contract GenesisStaking is IERC20, Ownable {
         require(token != address(this), "Cannot withdraw staking token");
         IERC20(token).transfer(to, amount);
     }
-
+    
     function emergencyEthWithdraw(address to, uint256 amount) external onlyOwner {
         payable(to).transfer(amount);
     }
